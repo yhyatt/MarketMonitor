@@ -20,7 +20,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://github.com/yhyatt/MarketMonitor)
-[![OpenClaw Skill](https://img.shields.io/badge/OpenClaw-Skill-red)](https://clawhub.ai/skills/market-monitor)
 [![Tests](https://img.shields.io/badge/tests-100%20passed-brightgreen)](https://github.com/yhyatt/MarketMonitor/actions)
 
 </div>
@@ -42,7 +41,7 @@
 Market Monitor is an OpenClaw skill. Install it and your agent handles the weekly scan automatically:
 
 ```bash
-clawhub install yhyatt/market-monitor
+clawhub install yhyatt/market-monitor  # coming soon
 ```
 
 Or run manually:
@@ -261,5 +260,5 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  Built with 🦞 <a href="https://openclaw.ai">OpenClaw</a> · Published on <a href="https://clawhub.ai/skills/market-monitor">ClawHub</a>
+  Built with 🦞 <a href="https://openclaw.ai">OpenClaw</a>
 </p>
