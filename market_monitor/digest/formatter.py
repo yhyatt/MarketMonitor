@@ -99,9 +99,16 @@ class DigestFormatter:
 
         # GitHub signals
         for signal in github_signals[:3]:
-            delta_str = f"+{signal.delta_stars_7d}" if signal.delta_stars_7d > 0 else str(signal.delta_stars_7d)
-            velocity_str = f"+{signal.velocity_pct:.1f}%" if signal.velocity_pct > 0 else f"{signal.velocity_pct:.1f}%"
-            lines.append(f"🚀 GitHub: {signal.repo} {delta_str}★ ({velocity_str} this week)")
+            delta_str = f"+{signal.delta_stars_7d:,}" if signal.delta_stars_7d > 0 else str(signal.delta_stars_7d)
+            url = signal.url or f"https://github.com/{signal.repo}"
+            desc = f" — {signal.description[:80]}" if signal.description else ""
+            # Only show velocity % if it's meaningful (< 10000% = baseline existed)
+            if signal.velocity_pct < 1000:
+                velocity_str = f" (+{signal.velocity_pct:.1f}%)"
+            else:
+                velocity_str = " (trending)"
+            lines.append(f"🚀 {signal.repo} {delta_str}★{velocity_str}")
+            lines.append(f"   {url}{desc}")
 
         if github_signals:
             lines.append("")
@@ -174,13 +181,15 @@ class DigestFormatter:
         if github_signals:
             html += """<h2 style="color: #4f46e5; font-size: 18px; margin-top: 24px;">🚀 GitHub Momentum</h2>"""
             for signal in github_signals[:5]:
-                delta_str = f"+{signal.delta_stars_7d}" if signal.delta_stars_7d > 0 else str(signal.delta_stars_7d)
-                velocity_str = f"+{signal.velocity_pct:.1f}%" if signal.velocity_pct > 0 else f"{signal.velocity_pct:.1f}%"
+                delta_str = f"+{signal.delta_stars_7d:,}" if signal.delta_stars_7d > 0 else str(signal.delta_stars_7d)
+                velocity_str = f"+{signal.velocity_pct:.1f}%" if signal.velocity_pct < 1000 else "trending"
+                repo_url = signal.url or f"https://github.com/{signal.repo}"
+                desc = f"<br/><span style='color:#6b7280;font-size:13px;'>{signal.description[:100]}</span>" if signal.description else ""
 
                 html += f"""
 <div style="margin-bottom: 8px; padding: 8px; background-color: #ecfdf5; border-radius: 6px;">
-<a href="{signal.url}" style="color: #059669; text-decoration: none; font-weight: 500;">{signal.repo}</a>
-<span style="color: #047857;"> {delta_str}★ ({velocity_str} this week)</span>
+<a href="{repo_url}" style="color: #059669; text-decoration: none; font-weight: 500;">{signal.repo}</a>
+<span style="color: #047857;"> {delta_str}★ ({velocity_str} this week)</span>{desc}
 </div>
 """
 
