@@ -41,7 +41,7 @@
 Market Monitor is an OpenClaw skill. Install it and your agent handles the weekly scan automatically:
 
 ```bash
-clawhub install yhyatt/market-monitor  # coming soon
+https://github.com/yhyatt/MarketMonitor  # coming soon
 ```
 
 Or run manually:
