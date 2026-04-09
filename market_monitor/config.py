@@ -55,7 +55,7 @@ class Config:
         return cls(
             anthropic_api_token=os.environ.get("ANTHROPIC_API_TOKEN"),
             github_token=os.environ.get("GITHUB_TOKEN"),
-            gog_keyring_password=os.environ.get("GOG_KEYRING_PASSWORD"),
+            # gws uses file-based auth, no password needed
         )
 
     @property

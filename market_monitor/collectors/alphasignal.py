@@ -1,4 +1,4 @@
-"""AlphaSignal collector - parse AlphaSignal emails from Gmail."""
+"""AlphaSignal collector - parse AlphaSignal emails from Gmail via googleworkspace CLI."""
 
 import json
 import re
@@ -9,6 +9,8 @@ from typing import Optional
 
 from .base import BaseCollector
 from ..config import Config
+
+GWS_BIN = "/usr/local/bin/googleworkspace"
 
 
 @dataclass
@@ -28,18 +30,15 @@ class AlphaItem:
 
 
 class AlphaSignalCollector(BaseCollector):
-    """Collector for AlphaSignal email digests via gog gmail."""
+    """Collector for AlphaSignal email digests via googleworkspace CLI."""
 
-    GMAIL_ACCOUNT = "hyatt.yonatan@gmail.com"
-    # Primary: label-based (Gmail label "Digest_sources" applied to AlphaSignal emails)
-    # Fallback: sender-based search
+    GMAIL_ACCOUNT = "me"
     SEARCH_QUERY = "label:Digest_sources"
     SEARCH_QUERY_FALLBACK = "from:alphasignal"
     LIMIT = 10
 
     def __init__(self, config: Config):
         super().__init__(config)
-        self.gog_password = config.gog_keyring_password
 
     @property
     def name(self) -> str:
@@ -47,10 +46,6 @@ class AlphaSignalCollector(BaseCollector):
 
     def collect(self) -> list[AlphaItem]:
         """Fetch and parse AlphaSignal emails from Gmail."""
-        if not self.gog_password:
-            print("[AlphaSignal] Warning: GOG_KEYRING_PASSWORD not set, skipping")
-            return []
-
         # Try label-based search first, fall back to sender search
         email_ids = self._search_emails(self.SEARCH_QUERY)
         if not email_ids:
@@ -70,12 +65,14 @@ class AlphaSignalCollector(BaseCollector):
     def _search_emails(self, query: str) -> list[str]:
         """Search for AlphaSignal emails in Gmail."""
         cmd = [
-            "gog", "gmail", "search", query,
-            "--account", self.GMAIL_ACCOUNT,
-            "--limit", str(self.LIMIT),
+            GWS_BIN, "gmail", "users", "messages", "list",
+            "--params", json.dumps({
+                "userId": self.GMAIL_ACCOUNT,
+                "q": query,
+                "maxResults": self.LIMIT,
+            }),
+            "--format", "json",
         ]
-
-        env = {"GOG_KEYRING_PASSWORD": self.gog_password}
 
         try:
             result = subprocess.run(
@@ -83,34 +80,20 @@ class AlphaSignalCollector(BaseCollector):
                 capture_output=True,
                 text=True,
                 timeout=30,
-                env={**subprocess.os.environ, **env},
             )
 
             if result.returncode != 0:
-                print(f"[AlphaSignal] gog search failed: {result.stderr}")
+                print(f"[AlphaSignal] gws search failed: {result.stderr}")
                 return []
 
-            # Parse email IDs from output (one per line or JSON)
-            output = result.stdout.strip()
-            if not output:
-                return []
-
-            # Try JSON parse first
-            try:
-                data = json.loads(output)
-                if isinstance(data, list):
-                    return [str(item.get("id", item)) for item in data if item]
-            except json.JSONDecodeError:
-                pass
-
-            # Fall back to line-based parsing
-            return [line.strip() for line in output.splitlines() if line.strip()]
+            data = json.loads(result.stdout.strip())
+            return [msg["id"] for msg in data.get("messages", [])]
 
         except subprocess.TimeoutExpired:
-            print("[AlphaSignal] gog search timed out")
+            print("[AlphaSignal] gws search timed out")
             return []
         except FileNotFoundError:
-            print("[AlphaSignal] gog command not found")
+            print("[AlphaSignal] googleworkspace command not found")
             return []
         except Exception as e:
             print(f"[AlphaSignal] Error searching emails: {e}")
@@ -119,11 +102,14 @@ class AlphaSignalCollector(BaseCollector):
     def _parse_email(self, email_id: str) -> list[AlphaItem]:
         """Read and parse a single email."""
         cmd = [
-            "gog", "gmail", "read", email_id,
-            "--account", self.GMAIL_ACCOUNT,
+            GWS_BIN, "gmail", "users", "messages", "get",
+            "--params", json.dumps({
+                "userId": self.GMAIL_ACCOUNT,
+                "id": email_id,
+                "format": "full",
+            }),
+            "--format", "json",
         ]
-
-        env = {"GOG_KEYRING_PASSWORD": self.gog_password}
 
         try:
             result = subprocess.run(
@@ -131,39 +117,44 @@ class AlphaSignalCollector(BaseCollector):
                 capture_output=True,
                 text=True,
                 timeout=15,
-                env={**subprocess.os.environ, **env},
             )
 
             if result.returncode != 0:
                 return []
 
-            return self._extract_items(result.stdout)
+            msg_data = json.loads(result.stdout.strip())
+            # Extract body from payload
+            body = self._extract_body(msg_data.get("payload", {}))
+            return self._extract_items(body)
 
         except Exception as e:
             print(f"[AlphaSignal] Error reading email {email_id}: {e}")
             return []
+
+    def _extract_body(self, payload: dict) -> str:
+        """Extract text body from Gmail API payload."""
+        import base64
+
+        if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
+            return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", "replace")
+        if payload.get("mimeType", "").startswith("text/html") and payload.get("body", {}).get("data"):
+            html = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", "replace")
+            return re.sub(r"<[^>]+>", " ", html)
+        for part in payload.get("parts", []):
+            body = self._extract_body(part)
+            if body:
+                return body
+        return ""
 
     def _extract_items(self, email_body: str) -> list[AlphaItem]:
         """Extract paper titles, model names, and highlights from email body."""
         items = []
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        # Extract section headers and content
-        # AlphaSignal typically has sections like "Papers", "Models", "News"
-
-        # Pattern for paper titles (often have arxiv links or numbered lists)
-        paper_patterns = [
-            r"(?:^|\n)(?:\d+[\.\)]\s*)?([A-Z][^.!?\n]{20,100})\s*(?:\n|$)",
-            r"(?:arxiv\.org/abs/\S+)\s*[-:]?\s*([^\n]+)",
-        ]
-
-        # Pattern for URLs
         url_pattern = r"(https?://[^\s<>\"]+)"
 
-        # Split into sections and extract highlights
         lines = email_body.split("\n")
         current_section = "general"
-        current_title = None
         current_url = None
 
         for line in lines:
@@ -171,23 +162,18 @@ class AlphaSignalCollector(BaseCollector):
             if not line:
                 continue
 
-            # Check for section headers
             if re.match(r"^(?:Papers?|Research|Models?|News|Highlights?):?\s*$", line, re.I):
                 current_section = line.lower().split(":")[0].strip()
                 continue
 
-            # Extract URLs
             url_match = re.search(url_pattern, line)
             if url_match:
                 current_url = url_match.group(1)
 
-            # Look for titles (capitalized, longer text)
             if len(line) > 30 and line[0].isupper():
-                # Skip if it looks like a paragraph (too long)
                 if len(line) > 200:
                     continue
 
-                # This might be a title
                 title = re.sub(r"\s+", " ", line)
                 title = re.sub(url_pattern, "", title).strip()
 
@@ -201,7 +187,6 @@ class AlphaSignalCollector(BaseCollector):
                     ))
                     current_url = None
 
-                    # Limit items per email
                     if len(items) >= 10:
                         break
 

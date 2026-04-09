@@ -307,7 +307,7 @@ def cmd_status(config: Config) -> None:
     print(f"\nAPI tokens:")
     print(f"  ANTHROPIC_API_TOKEN: {'set' if config.anthropic_api_token else 'not set'}")
     print(f"  GITHUB_TOKEN: {'set' if config.github_token else 'not set'}")
-    print(f"  GOG_KEYRING_PASSWORD: {'set' if config.gog_keyring_password else 'not set'}")
+    print(f"  # gws uses file-based auth else 'not set'}")
 
 
 def cmd_test(config: Config) -> None:
