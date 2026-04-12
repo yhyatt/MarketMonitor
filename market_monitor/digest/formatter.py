@@ -97,8 +97,9 @@ class DigestFormatter:
         if hf_items:
             lines.append("")
 
-        # GitHub signals
-        for signal in github_signals[:3]:
+        # GitHub signals — sort by velocity to surface ascending repos first
+        sorted_signals = sorted(github_signals, key=lambda s: s.velocity_pct, reverse=True)
+        for signal in sorted_signals[:5]:
             delta_str = f"+{signal.delta_stars_7d:,}" if signal.delta_stars_7d > 0 else str(signal.delta_stars_7d)
             url = signal.url or f"https://github.com/{signal.repo}"
             desc = f" — {signal.description[:80]}" if signal.description else ""
@@ -106,7 +107,7 @@ class DigestFormatter:
             if signal.velocity_pct < 1000:
                 velocity_str = f" (+{signal.velocity_pct:.1f}%)"
             else:
-                velocity_str = " (trending)"
+                velocity_str = " (trending 🆕)"
             lines.append(f"🚀 {signal.repo} {delta_str}★{velocity_str}")
             lines.append(f"   {url}{desc}")
 

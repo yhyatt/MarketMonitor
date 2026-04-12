@@ -45,9 +45,14 @@ class Config:
         "BerriAI/litellm",
     ])
 
-    # GitHub velocity thresholds
+    # GitHub velocity thresholds (scaled to repo size)
+    # Small repos (<10K stars): 10% velocity or 500 delta
+    # Medium repos (10K-50K): 5% velocity or 2000 delta
+    # Large repos (>50K): 2% velocity or 3000 delta
     github_velocity_threshold_pct: float = 5.0
     github_delta_threshold: int = 500
+    github_delta_threshold_large: int = 3000  # repos with >50K stars
+    github_delta_threshold_medium: int = 2000  # repos with >10K stars
 
     @classmethod
     def from_env(cls) -> "Config":

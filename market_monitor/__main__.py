@@ -49,11 +49,13 @@ def cmd_scan(config: Config, dry_run: bool = False) -> dict:
     print(f"  After dedup: {len(arxiv_deduped)}")
 
     if not dry_run and arxiv_deduped:
-        # Score and log
+        # Score and log — limit to top 30 by relevance to avoid API timeout
         try:
             from .filters import LLMScorer
             scorer = LLMScorer(config)
-            scored = scorer.filter_by_threshold(arxiv_deduped, threshold=config.score_threshold, max_items=config.max_digest_items)
+            # Pre-trim to avoid scoring 100+ papers (timeout risk)
+            arxiv_to_score = arxiv_deduped[:30]
+            scored = scorer.filter_by_threshold(arxiv_to_score, threshold=config.score_threshold, max_items=config.max_digest_items)
             logger = PaperLogger(config)
             results["arxiv"] = logger.log_batch(scored)
             print(f"  Logged {results['arxiv']} papers")
@@ -245,8 +247,8 @@ def cmd_digest(
     # Send email
     if email_to:
         print(f"\nSending email to {email_to}...")
-        emailer = EmailSender(config)
-        if emailer.send_digest(email_to, digest.subject, digest.html, digest.plain):
+        emailer = EmailSender(config, email_to, digest.subject)
+        if emailer.send(digest.html, html=True):
             print("Email sent!")
         else:
             print("Email send failed")
@@ -307,7 +309,7 @@ def cmd_status(config: Config) -> None:
     print(f"\nAPI tokens:")
     print(f"  ANTHROPIC_API_TOKEN: {'set' if config.anthropic_api_token else 'not set'}")
     print(f"  GITHUB_TOKEN: {'set' if config.github_token else 'not set'}")
-    print(f"  # gws uses file-based auth else 'not set'}")
+    print("  # gws uses file-based auth else 'not set'}")
 
 
 def cmd_test(config: Config) -> None:

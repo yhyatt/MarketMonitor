@@ -236,7 +236,15 @@ class GitHubRadar(BaseCollector):
         delta = current_stars - baseline_stars
         velocity_pct = (delta / baseline_stars * 100) if baseline_stars > 0 else 0
 
-        flagged = velocity_pct > self.velocity_threshold or delta > self.delta_threshold
+        # Scale thresholds by repo size
+        if current_stars > 50000:
+            delta_thresh = self.config.github_delta_threshold_large
+        elif current_stars > 10000:
+            delta_thresh = self.config.github_delta_threshold_medium
+        else:
+            delta_thresh = self.config.github_delta_threshold
+
+        flagged = velocity_pct > self.velocity_threshold or delta > delta_thresh
 
         return GitHubSignal(
             repo=repo,
