@@ -5,6 +5,7 @@ from .arxiv import ArxivCollector, ArxivPaper
 from .huggingface import HuggingFaceCollector, HFItem
 from .github_radar import GitHubRadar, GitHubSignal
 from .alphasignal import AlphaSignalCollector, AlphaItem
+from .aitldr import AITLDRCollector, AITLDRItem
 
 __all__ = [
     "BaseCollector",
@@ -16,4 +17,6 @@ __all__ = [
     "GitHubSignal",
     "AlphaSignalCollector",
     "AlphaItem",
+    "AITLDRCollector",
+    "AITLDRItem",
 ]

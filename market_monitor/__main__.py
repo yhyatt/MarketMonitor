@@ -14,14 +14,19 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from .config import Config
-from .collectors import ArxivCollector, HuggingFaceCollector, GitHubRadar, AlphaSignalCollector
+from .collectors import ArxivCollector, HuggingFaceCollector, GitHubRadar, AlphaSignalCollector, AITLDRCollector
 from .filters import KeywordFilter, Deduplicator
-from .store import PaperLogger, GitHubLogger, HFLogger
+from .store import PaperLogger, GitHubLogger, HFLogger, AITLDRLogger
 from .digest import DigestFormatter, TelegramSender, EmailSender
+from .health import run_health_check, PipelineHealth
+from .logging_utils import get_logger
 
 
 def cmd_scan(config: Config, dry_run: bool = False) -> dict:
     """Scan all sources and log new items."""
+    logger = get_logger()
+    logger.log_pipeline_start("scan")
+
     print("=" * 50)
     print("SCAN: Collecting from all sources")
     print("=" * 50)
@@ -31,13 +36,15 @@ def cmd_scan(config: Config, dry_run: bool = False) -> dict:
         "huggingface": 0,
         "github": 0,
         "alphasignal": 0,
+        "aitldr": 0,
     }
 
     keyword_filter = KeywordFilter()
     dedup = Deduplicator(config)
 
     # Collect arXiv papers
-    print("\n[1/4] Scanning arXiv...")
+    print("\n[1/5] Scanning arXiv...")
+    logger.log_collector_start("arXiv")
     arxiv = ArxivCollector(config)
     arxiv_papers = arxiv.collect()
     print(f"  Found {len(arxiv_papers)} papers")
@@ -55,16 +62,23 @@ def cmd_scan(config: Config, dry_run: bool = False) -> dict:
             scorer = LLMScorer(config)
             # Pre-trim to avoid scoring 100+ papers (timeout risk)
             arxiv_to_score = arxiv_deduped[:30]
+            logger.log_scoring_start(len(arxiv_to_score))
             scored = scorer.filter_by_threshold(arxiv_to_score, threshold=config.score_threshold, max_items=config.max_digest_items)
-            logger = PaperLogger(config)
-            results["arxiv"] = logger.log_batch(scored)
+            logger.log_scoring_end(len(arxiv_to_score), len(scored))
+            paper_logger = PaperLogger(config)
+            results["arxiv"] = paper_logger.log_batch(scored)
             print(f"  Logged {results['arxiv']} papers")
+            logger.log_collector_end("arXiv", results["arxiv"], status="ok")
         except Exception as e:
             print(f"  Scoring error (API key missing?): {e}")
+            logger.log_collector_end("arXiv", 0, status="error", error=str(e))
             results["arxiv"] = 0
+    else:
+        logger.log_collector_end("arXiv", len(arxiv_deduped), status="ok" if arxiv_deduped else "degraded")
 
     # Collect HuggingFace items
-    print("\n[2/4] Scanning HuggingFace...")
+    print("\n[2/5] Scanning HuggingFace...")
+    logger.log_collector_start("HuggingFace")
     hf = HuggingFaceCollector(config)
     hf_items = hf.collect()
     print(f"  Found {len(hf_items)} items")
@@ -79,35 +93,65 @@ def cmd_scan(config: Config, dry_run: bool = False) -> dict:
         try:
             from .filters import LLMScorer
             scorer = LLMScorer(config)
+            logger.log_scoring_start(len(hf_deduped))
             scored = scorer.filter_by_threshold(hf_deduped, threshold=config.score_threshold, max_items=config.max_digest_items)
-            logger = HFLogger(config)
-            results["huggingface"] = logger.log_batch(scored)
+            logger.log_scoring_end(len(hf_deduped), len(scored))
+            hf_logger = HFLogger(config)
+            results["huggingface"] = hf_logger.log_batch(scored)
             print(f"  Logged {results['huggingface']} items")
+            logger.log_collector_end("HuggingFace", results["huggingface"], status="ok")
         except Exception as e:
             print(f"  Scoring error: {e}")
+            logger.log_collector_end("HuggingFace", 0, status="error", error=str(e))
             results["huggingface"] = 0
+    else:
+        logger.log_collector_end("HuggingFace", len(hf_deduped), status="ok" if hf_deduped else "degraded")
 
     # Collect GitHub signals
-    print("\n[3/4] Scanning GitHub...")
+    print("\n[3/5] Scanning GitHub...")
+    logger.log_collector_start("GitHub")
     github = GitHubRadar(config)
     signals = github.collect()
     flagged = [s for s in signals if s.flagged]
     print(f"  Tracked {len(signals)} repos, {len(flagged)} flagged")
 
     if not dry_run and flagged:
-        logger = GitHubLogger(config)
-        results["github"] = logger.log_flagged(signals)
+        gh_logger = GitHubLogger(config)
+        results["github"] = gh_logger.log_flagged(signals)
         print(f"  Logged {results['github']} signals")
+        logger.log_collector_end("GitHub", results["github"], status="ok")
+    else:
+        logger.log_collector_end("GitHub", len(flagged), status="ok" if flagged else "degraded")
 
     # Collect AlphaSignal emails
-    print("\n[4/4] Scanning AlphaSignal...")
+    print("\n[4/5] Scanning AlphaSignal...")
+    logger.log_collector_start("AlphaSignal")
     alpha = AlphaSignalCollector(config)
     alpha_items = alpha.collect()
     print(f"  Found {len(alpha_items)} items")
     results["alphasignal"] = len(alpha_items)
+    logger.log_collector_end("AlphaSignal", results["alphasignal"], status="ok" if alpha_items else "degraded")
+
+    # Collect AI/TLDR
+    print("\n[5/5] Scanning AI/TLDR...")
+    logger.log_collector_start("AI/TLDR")
+    aitldr = AITLDRCollector(config)
+    aitldr_items = aitldr.collect()
+    print(f"  Found {len(aitldr_items)} items")
+
+    if not dry_run and aitldr_items:
+        aitldr_filtered = keyword_filter.filter(aitldr_items)
+        aitldr_logger = AITLDRLogger(config)
+        results["aitldr"] = aitldr_logger.log_batch(aitldr_filtered)
+        print(f"  Logged {results['aitldr']} items")
+        logger.log_collector_end("AI/TLDR", results["aitldr"], status="ok")
+    else:
+        results["aitldr"] = len(aitldr_items)
+        logger.log_collector_end("AI/TLDR", results["aitldr"], status="ok" if aitldr_items else "degraded")
 
     print("\n" + "=" * 50)
-    print(f"SCAN COMPLETE: arxiv={results['arxiv']}, hf={results['huggingface']}, github={results['github']}, alpha={results['alphasignal']}")
+    print(f"SCAN COMPLETE: arxiv={results['arxiv']}, hf={results['huggingface']}, github={results['github']}, alpha={results['alphasignal']}, aitldr={results['aitldr']}")
+    logger.log_pipeline_end("scan", "ok")
 
     return results
 
@@ -126,14 +170,16 @@ def cmd_digest(
     paper_logger = PaperLogger(config)
     hf_logger = HFLogger(config)
     github_logger = GitHubLogger(config)
+    aitldr_logger = AITLDRLogger(config)
 
     papers = paper_logger.get_unsent()
     hf_items = hf_logger.get_unsent()
     github_signals = github_logger.get_unsent_flagged()
+    aitldr_items = aitldr_logger.get_unsent()
 
-    print(f"Unsent items: {len(papers)} papers, {len(hf_items)} HF items, {len(github_signals)} GitHub signals")
+    print(f"Unsent items: {len(papers)} papers, {len(hf_items)} HF items, {len(github_signals)} GitHub signals, {len(aitldr_items)} AI/TLDR")
 
-    if not papers and not hf_items and not github_signals:
+    if not papers and not hf_items and not github_signals and not aitldr_items:
         print("No new items to digest")
         return False
 
@@ -229,6 +275,7 @@ def cmd_digest(
         papers=scored_papers[:5],
         hf_items=scored_hf[:3],
         github_signals=mock_signals[:5],
+        aitldr_items=aitldr_items[:10],
         weekly_synthesis=weekly_synthesis,
     )
 
@@ -258,11 +305,13 @@ def cmd_digest(
         paper_ids = [p.get("arxiv_id") for p in papers if p.get("arxiv_id")]
         hf_ids = [h.get("id") for h in hf_items if h.get("id")]
         repo_names = [g.get("repo") for g in github_signals if g.get("repo")]
+        aitldr_ids = [a.get("id") for a in aitldr_items if a.get("id")]
 
         paper_logger.mark_sent(paper_ids)
         hf_logger.mark_sent(hf_ids)
         github_logger.mark_sent(repo_names)
-        print(f"\nMarked {len(paper_ids)} papers, {len(hf_ids)} HF items, {len(repo_names)} signals as sent")
+        aitldr_logger.mark_sent(aitldr_ids)
+        print(f"\nMarked {len(paper_ids)} papers, {len(hf_ids)} HF items, {len(repo_names)} signals, {len(aitldr_ids)} AI/TLDR items as sent")
 
     return True
 
@@ -307,7 +356,7 @@ def cmd_status(config: Config) -> None:
             print(f"\n{name}: {total} total, {unsent} unsent")
 
     print(f"\nAPI tokens:")
-    print(f"  ANTHROPIC_API_TOKEN: {'set' if config.anthropic_api_token else 'not set'}")
+    print(f"  MOONSHOT_API_KEY: {'set' if config.moonshot_api_key else 'not set'}")
     print(f"  GITHUB_TOKEN: {'set' if config.github_token else 'not set'}")
     print("  # gws uses file-based auth else 'not set'}")
 
@@ -334,7 +383,7 @@ Commands:
 
     parser.add_argument(
         "command",
-        choices=["scan", "digest", "run", "status", "test"],
+        choices=["scan", "digest", "run", "status", "health", "test"],
         help="Command to execute",
     )
     parser.add_argument(
@@ -358,6 +407,12 @@ Commands:
         cmd_run(config, args.telegram, args.email)
     elif args.command == "status":
         cmd_status(config)
+    elif args.command == "health":
+        report = run_health_check(config)
+        print(report.to_json())
+        # Also print Telegram-formatted version for easy copy
+        print("\n--- Telegram format ---\n")
+        print(report.to_telegram())
     elif args.command == "test":
         cmd_test(config)
 

@@ -1,11 +1,14 @@
-"""LLM scorer - stage 2 scoring via Anthropic API."""
+"""LLM scorer - stage 2 scoring via Moonshot API (Kimi K2.6)."""
 
 import json
+import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..config import Config
+from ..llm_client import chat
 
 # Researchers whose work tends to have outsized strategic signal
 # These get a +1 score boost to push borderline papers over threshold
@@ -51,22 +54,15 @@ class ScoredItem:
 
 @dataclass
 class LLMScorer:
-    """Score items using Anthropic's claude-haiku-4-5 model."""
+    """Score items using Moonshot Kimi K2.6 via API."""
 
     config: Config
-    model: str = "claude-haiku-4-5"
+    model: str = "kimi-k2-6"
     max_workers: int = 5
-    _client: Any = field(default=None, repr=False)
 
     def __post_init__(self):
-        if not self.config.anthropic_api_token:
-            raise ValueError("ANTHROPIC_API_TOKEN is required for LLM scoring")
-
-        try:
-            import anthropic
-            self._client = anthropic.Anthropic(api_key=self.config.anthropic_api_token)
-        except ImportError:
-            raise ImportError("anthropic package is required: pip install anthropic")
+        if not os.environ.get("MOONSHOT_API_KEY"):
+            raise ValueError("MOONSHOT_API_KEY is required for LLM scoring")
 
     def score_items(self, items: list[Any]) -> list[ScoredItem]:
         """Score multiple items in parallel.
@@ -122,15 +118,8 @@ class LLMScorer:
         return any(name in author_text for name in HIGH_SIGNAL_RESEARCHERS)
 
     def _strategic_check(self, item: Any, scored: "ScoredItem") -> "ScoredItem":
-        """For borderline items (score 6-7), do a focused second-pass check.
-
-        Asks a single targeted question: is there a genuine strategic element,
-        or is this just technically interesting? Costs ~150 tokens per call.
-        Returns the item with score potentially bumped to 7 (include) or dropped to 5 (exclude).
-        """
-        # item here is the raw original item (not a ScoredItem)
+        """For borderline items (score 6-7), do a focused second-pass check."""
         title_str = getattr(item, "title", "") or getattr(item, "name", "") or "Unknown"
-        text = item.full_text if hasattr(item, "full_text") else ""
 
         prompt = f"""Quick strategic assessment (1 sentence answer + JSON score adjustment).
 
@@ -145,12 +134,8 @@ Is there a concrete strategic implication for enterprise AI adoption, market pos
 JSON only."""
 
         try:
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=80,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            result = self._parse_json_response(response.content[0].text)
+            content = chat(messages=[{"role": "user", "content": prompt}], max_tokens=80)
+            result = self._parse_json_response(content)
             if result and "adjust" in result:
                 adj = result["adjust"]
                 reason = result.get("reason", "")
@@ -184,11 +169,11 @@ Content:
 
 ## His interest profile (score higher for these):
 - HIGH INTEREST: Agentic AI, multi-agent systems, orchestration, AI paradigm shifts, foundation model positioning
-- HIGH INTEREST: "Auto-research" — AI systems that autonomously do research, planning, synthesis (e.g., Karpathy-style deep research reports, autonomous agents doing scientific/technical work)
+- HIGH INTEREST: "Auto-research" — AI systems that autonomously do research, planning, synthesis
 - HIGH INTEREST: Open-source LLMs and frameworks (LLaMA, Mistral, Gemma, vllm, dspy, etc.) — market dynamics, capabilities
 - HIGH INTEREST: Human-AI collaboration patterns, centaur workflows, enterprise deployment architecture
 - MEDIUM INTEREST: AI governance, alignment, institutional considerations — only surface if major/paradigm-level
-- LOW INTEREST: Security vulnerabilities — only score 8+ if it's a truly systemic/novel threat (not incremental attack variants)
+- LOW INTEREST: Security vulnerabilities — only score 8+ if it's a truly systemic/novel threat
 - LOW INTEREST: Narrow benchmarks, incremental improvements on existing tasks
 
 ## Scoring guide:
@@ -207,13 +192,7 @@ Return JSON only:
 }}"""
 
         try:
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=500,
-                messages=[{"role": "user", "content": prompt}],
-            )
-
-            content = response.content[0].text
+            content = chat(messages=[{"role": "user", "content": prompt}], max_tokens=500)
             result = self._parse_json_response(content)
 
             if result:
@@ -240,9 +219,9 @@ Return JSON only:
                     if scored.score != old_score:
                         print(f"[Scorer] Author boost: '{title[:50]}' {old_score}→{scored.score}")
 
-                # Borderline items (6-7): second-pass strategic check (~150 tokens)
+                # Borderline items (6-7): second-pass strategic check
                 if scored.score in (6, 7):
-                    scored = self._strategic_check(item, scored)  # pass raw item
+                    scored = self._strategic_check(item, scored)
 
                 return scored
 
@@ -260,7 +239,6 @@ Return JSON only:
             pass
 
         # Try to find JSON block
-        import re
         json_match = re.search(r"\{[^{}]*\}", content, re.DOTALL)
         if json_match:
             try:

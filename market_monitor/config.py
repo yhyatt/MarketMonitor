@@ -13,7 +13,7 @@ class Config:
     workspace_root: Path = field(default_factory=lambda: Path("/home/openclaw/.openclaw/workspace"))
     memory_dir: Path = field(default_factory=lambda: Path("/home/openclaw/.openclaw/workspace/memory/market"))
 
-    anthropic_api_token: Optional[str] = None
+    moonshot_api_key: Optional[str] = None
     github_token: Optional[str] = None
     gog_keyring_password: Optional[str] = None
 
@@ -57,11 +57,30 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""
+        github_token = os.environ.get("GITHUB_TOKEN")
+        if not github_token:
+            # Fallback: extract token from gh CLI auth
+            github_token = cls._gh_token()
         return cls(
-            anthropic_api_token=os.environ.get("ANTHROPIC_API_TOKEN"),
-            github_token=os.environ.get("GITHUB_TOKEN"),
+            moonshot_api_key=os.environ.get("MOONSHOT_API_KEY"),
+            github_token=github_token,
             # gws uses file-based auth, no password needed
         )
+
+    @staticmethod
+    def _gh_token() -> Optional[str]:
+        """Extract GitHub token from gh CLI auth config."""
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return None
 
     @property
     def papers_jsonl(self) -> Path:
@@ -78,6 +97,10 @@ class Config:
     @property
     def hf_releases_jsonl(self) -> Path:
         return self.memory_dir / "hf_releases.jsonl"
+
+    @property
+    def aitldr_items_jsonl(self) -> Path:
+        return self.memory_dir / "aitldr_items.jsonl"
 
     def ensure_memory_dir(self) -> None:
         """Ensure memory directory exists."""

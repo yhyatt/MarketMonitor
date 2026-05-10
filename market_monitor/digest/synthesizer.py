@@ -1,4 +1,4 @@
-"""Weekly synthesizer - generate "why this week matters" via LLM."""
+"""Weekly synthesizer - generate "why this week matters" via Moonshot API (Kimi K2.6)."""
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -6,26 +6,15 @@ from typing import Any, Optional
 from ..config import Config
 from ..filters.scorer import ScoredItem
 from ..collectors.github_radar import GitHubSignal
+from ..llm_client import chat
 
 
 @dataclass
 class WeeklySynthesizer:
-    """Generate weekly synthesis paragraph using Anthropic API."""
+    """Generate weekly synthesis paragraph using Moonshot Kimi K2.6."""
 
     config: Config
-    model: str = "claude-haiku-4-5"
-    _client: Any = field(default=None, repr=False)
-
-    def __post_init__(self):
-        if not self.config.anthropic_api_token:
-            self._client = None
-            return
-
-        try:
-            import anthropic
-            self._client = anthropic.Anthropic(api_key=self.config.anthropic_api_token)
-        except ImportError:
-            self._client = None
+    model: str = "kimi-k2-6"
 
     def synthesize(
         self,
@@ -43,9 +32,6 @@ class WeeklySynthesizer:
         Returns:
             2-3 sentence synthesis paragraph
         """
-        if not self._client:
-            return self._fallback_synthesis(papers, hf_items, github_signals)
-
         # Build context from all items
         context_parts = []
 
@@ -82,13 +68,8 @@ Write a 2-3 sentence "Why This Week Matters" synthesis that:
 Write ONLY the synthesis paragraph, no headers or labels."""
 
         try:
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=200,
-                messages=[{"role": "user", "content": prompt}],
-            )
-
-            return response.content[0].text.strip()
+            content = chat(messages=[{"role": "user", "content": prompt}], max_tokens=200)
+            return content.strip()
 
         except Exception as e:
             print(f"[Synthesizer] API error: {e}")

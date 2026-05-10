@@ -1,6 +1,7 @@
-"""AlphaSignal collector - parse AlphaSignal emails from Gmail via googleworkspace CLI."""
+"""AlphaSignal collector - parse AlphaSignal emails from Gmail via gog CLI."""
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -10,7 +11,9 @@ from typing import Optional
 from .base import BaseCollector
 from ..config import Config
 
-GWS_BIN = "/usr/local/bin/googleworkspace"
+GOG_BIN = "/home/openclaw/.local/bin/gog"
+GOG_KEYRING_PASSWORD = "kai-gog-keyring"
+DEFAULT_ACCOUNT = "hyatt.yonatan@gmail.com"
 
 
 @dataclass
@@ -30,9 +33,8 @@ class AlphaItem:
 
 
 class AlphaSignalCollector(BaseCollector):
-    """Collector for AlphaSignal email digests via googleworkspace CLI."""
+    """Collector for AlphaSignal email digests via gog CLI."""
 
-    GMAIL_ACCOUNT = "me"
     SEARCH_QUERY = "label:Digest_sources"
     SEARCH_QUERY_FALLBACK = "from:alphasignal"
     LIMIT = 10
@@ -62,38 +64,35 @@ class AlphaSignalCollector(BaseCollector):
 
         return items
 
+    def _run_gog(self, args: list[str]) -> subprocess.CompletedProcess:
+        """Run a gog command with keyring password."""
+        cmd = [GOG_BIN] + args
+        env = {**os.environ, "GOG_KEYRING_PASSWORD": GOG_KEYRING_PASSWORD}
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
+
     def _search_emails(self, query: str) -> list[str]:
         """Search for AlphaSignal emails in Gmail."""
-        cmd = [
-            GWS_BIN, "gmail", "users", "messages", "list",
-            "--params", json.dumps({
-                "userId": self.GMAIL_ACCOUNT,
-                "q": query,
-                "maxResults": self.LIMIT,
-            }),
-            "--format", "json",
-        ]
-
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            result = self._run_gog([
+                "gmail", "search", query,
+                "-a", DEFAULT_ACCOUNT,
+                "-j", "--results-only",
+            ])
 
             if result.returncode != 0:
-                print(f"[AlphaSignal] gws search failed: {result.stderr}")
+                print(f"[AlphaSignal] gog search failed: {result.stderr}")
                 return []
 
             data = json.loads(result.stdout.strip())
-            return [msg["id"] for msg in data.get("messages", [])]
+            # gog returns flat array of threads with 'id' field
+            threads = data if isinstance(data, list) else []
+            return [msg.get("id", "") for msg in threads if msg.get("id")]
 
         except subprocess.TimeoutExpired:
-            print("[AlphaSignal] gws search timed out")
+            print("[AlphaSignal] gog search timed out")
             return []
         except FileNotFoundError:
-            print("[AlphaSignal] googleworkspace command not found")
+            print("[AlphaSignal] gog command not found")
             return []
         except Exception as e:
             print(f"[AlphaSignal] Error searching emails: {e}")
@@ -101,50 +100,24 @@ class AlphaSignalCollector(BaseCollector):
 
     def _parse_email(self, email_id: str) -> list[AlphaItem]:
         """Read and parse a single email."""
-        cmd = [
-            GWS_BIN, "gmail", "users", "messages", "get",
-            "--params", json.dumps({
-                "userId": self.GMAIL_ACCOUNT,
-                "id": email_id,
-                "format": "full",
-            }),
-            "--format", "json",
-        ]
-
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
+            result = self._run_gog([
+                "gmail", "get", email_id,
+                "-a", DEFAULT_ACCOUNT,
+                "-j",
+            ])
 
             if result.returncode != 0:
                 return []
 
             msg_data = json.loads(result.stdout.strip())
-            # Extract body from payload
-            body = self._extract_body(msg_data.get("payload", {}))
+            # gog returns {body, headers, message, snippet}
+            body = msg_data.get("body", "") or msg_data.get("snippet", "")
             return self._extract_items(body)
 
         except Exception as e:
             print(f"[AlphaSignal] Error reading email {email_id}: {e}")
             return []
-
-    def _extract_body(self, payload: dict) -> str:
-        """Extract text body from Gmail API payload."""
-        import base64
-
-        if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
-            return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", "replace")
-        if payload.get("mimeType", "").startswith("text/html") and payload.get("body", {}).get("data"):
-            html = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", "replace")
-            return re.sub(r"<[^>]+>", " ", html)
-        for part in payload.get("parts", []):
-            body = self._extract_body(part)
-            if body:
-                return body
-        return ""
 
     def _extract_items(self, email_body: str) -> list[AlphaItem]:
         """Extract paper titles, model names, and highlights from email body."""

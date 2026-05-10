@@ -1,35 +1,20 @@
-"""Email sender - send digest via gws (googleworkspace CLI)."""
+"""Email sender - send digest via gog CLI."""
 
-import base64
+import os
 import subprocess
 from dataclasses import dataclass
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Optional
 
 from ..config import Config
 
-GWS_BIN = "googleworkspace"
-
-
-def _encode_message(to: str, subject: str, body: str, html: bool = False) -> str:
-    """Build a MIME message and return base64url-encoded raw string for Gmail API."""
-    msg = MIMEMultipart("alternative")
-    msg["To"] = to
-    msg["Subject"] = subject
-
-    if html:
-        msg.attach(MIMEText(body, "html", "utf-8"))
-    else:
-        msg.attach(MIMEText(body, "plain", "utf-8"))
-
-    raw_bytes = msg.as_bytes()
-    return base64.urlsafe_b64encode(raw_bytes).decode("ascii")
+GOG_BIN = "/home/openclaw/.local/bin/gog"
+GOG_KEYRING_PASSWORD = "kai-gog-keyring"
+DEFAULT_ACCOUNT = "amisraelk@gmail.com"
 
 
 @dataclass
 class EmailSender:
-    """Send emails via gws (googleworkspace CLI)."""
+    """Send emails via gog CLI."""
 
     recipient: str
     subject: str = "Market Digest"
@@ -40,7 +25,7 @@ class EmailSender:
 
     def send(self, body: str, html: bool = False) -> bool:
         """
-        Send email via gws CLI.
+        Send email via gog CLI.
 
         Args:
             body: Email body text
@@ -49,13 +34,19 @@ class EmailSender:
         Returns:
             True if sent successfully, False otherwise
         """
-        raw = _encode_message(self.recipient, self.subject, body, html)
-
         cmd = [
-            GWS_BIN, "gmail", "users", "messages", "send",
-            "--params", '{"userId": "me"}',
-            "--json", f'{{"raw": "{raw}"}}',
+            GOG_BIN, "gmail", "send",
+            "-a", DEFAULT_ACCOUNT,
+            "--to", self.recipient,
+            "--subject", self.subject,
+            "--body", body,
         ]
+        if html:
+            # gog uses --body-html for HTML content, --body for plain text
+            cmd.remove("--body")
+            cmd.append("--body-html")
+
+        env = {**os.environ, "GOG_KEYRING_PASSWORD": GOG_KEYRING_PASSWORD}
 
         try:
             result = subprocess.run(
@@ -63,20 +54,21 @@ class EmailSender:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=env,
             )
 
             if result.returncode != 0:
-                print(f"[Email] gws send failed: {result.stderr}")
+                print(f"[Email] gog send failed: {result.stderr}")
                 return False
 
             print(f"[Email] Sent to {self.recipient}")
             return True
 
         except FileNotFoundError:
-            print("[Email] googleworkspace command not found")
+            print("[Email] gog command not found")
             return False
         except subprocess.TimeoutExpired:
-            print("[Email] gws send timed out")
+            print("[Email] gog send timed out")
             return False
         except Exception as e:
             print(f"[Email] Error: {e}")

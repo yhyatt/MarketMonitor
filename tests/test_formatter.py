@@ -42,6 +42,7 @@ class MockGitHubSignal:
     velocity_pct: float
     flagged: bool
     url: str
+    description: str = ""
 
 
 class TestDigestFormatter:
@@ -52,7 +53,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         papers = [MockScored(original=MockOriginal(title="Test Paper", url="http://test.com"))]
 
-        result = formatter.format(papers, [], [], "Test synthesis")
+        result = formatter.format(papers, [], [], weekly_synthesis="Test synthesis")
 
         assert isinstance(result, DigestContent)
         assert result.telegram
@@ -65,7 +66,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         papers = [MockScored(original=MockOriginal(title="Test Paper", url="http://test.com"))]
 
-        result = formatter.format(papers, [], [], "")
+        result = formatter.format(papers, [], [], weekly_synthesis="")
 
         assert "Test Paper" in result.telegram
         assert "Test thesis" in result.telegram
@@ -79,7 +80,7 @@ class TestDigestFormatter:
             MockScored(original=MockOriginal(title="Paper 2"), thesis="Thesis 2"),
         ]
 
-        result = formatter.format(papers, [], [], "")
+        result = formatter.format(papers, [], [], weekly_synthesis="")
 
         assert "Paper 1" in result.telegram
         assert "Paper 2" in result.telegram
@@ -90,7 +91,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         hf = [MockScored(original=MockOriginal(name="TestModel", type="model"))]
 
-        result = formatter.format([], hf, [], "")
+        result = formatter.format([], hf, [], weekly_synthesis="")
 
         assert "TestModel" in result.telegram
         assert "HF:" in result.telegram
@@ -107,7 +108,7 @@ class TestDigestFormatter:
             url="https://github.com/owner/repo",
         )]
 
-        result = formatter.format([], [], github, "")
+        result = formatter.format([], [], github, weekly_synthesis="")
 
         assert "owner/repo" in result.telegram
         assert "+500" in result.telegram
@@ -118,7 +119,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         synthesis = "This week matters because of X."
 
-        result = formatter.format([], [], [], synthesis)
+        result = formatter.format([], [], [], weekly_synthesis=synthesis)
 
         assert synthesis in result.telegram
 
@@ -127,7 +128,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         papers = [MockScored(original=MockOriginal(title="Test Paper", url="http://test.com"))]
 
-        result = formatter.format(papers, [], [], "Synthesis")
+        result = formatter.format(papers, [], [], weekly_synthesis="Synthesis")
 
         assert "<!DOCTYPE html>" in result.html
         assert "<html>" in result.html
@@ -141,7 +142,7 @@ class TestDigestFormatter:
         hf = [MockScored(original=MockOriginal(name="Model", type="model"))]
         github = [MockGitHubSignal("r", 1000, 100, 10.0, True, "url")]
 
-        result = formatter.format(papers, hf, github, "Synthesis")
+        result = formatter.format(papers, hf, github, weekly_synthesis="Synthesis")
 
         assert "Papers" in result.html
         assert "HuggingFace" in result.html
@@ -153,7 +154,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         papers = [MockScored(original=MockOriginal(title="Paper", url="http://paper.url"))]
 
-        result = formatter.format(papers, [], [], "")
+        result = formatter.format(papers, [], [], weekly_synthesis="")
 
         assert 'href="http://paper.url"' in result.html
 
@@ -162,7 +163,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         papers = [MockScored(original=MockOriginal(title="Test Paper"))]
 
-        result = formatter.format(papers, [], [], "Synthesis")
+        result = formatter.format(papers, [], [], weekly_synthesis="Synthesis")
 
         assert "PAPERS" in result.plain
         assert "Test Paper" in result.plain
@@ -175,7 +176,7 @@ class TestDigestFormatter:
         formatter = DigestFormatter()
         test_date = datetime(2026, 4, 7, tzinfo=timezone.utc)
 
-        result = formatter.format([], [], [], "", date=test_date)
+        result = formatter.format([], [], [], weekly_synthesis="", date=test_date)
 
         assert "April" in result.subject or "Apr" in result.subject
         assert "2026" in result.subject
@@ -187,7 +188,7 @@ class TestDigestFormatter:
         hf = [MockScored(original=MockOriginal(name=f"Model {i}", type="model")) for i in range(10)]
         github = [MockGitHubSignal(f"r{i}", 1000, 100, 10.0, True, "url") for i in range(10)]
 
-        result = formatter.format(papers, hf, github, "")
+        result = formatter.format(papers, hf, github, weekly_synthesis="")
 
         # Should limit papers to 5, HF to 3, GitHub to 5
         paper_count = result.telegram.count("Paper ")
@@ -197,7 +198,7 @@ class TestDigestFormatter:
         """Should handle empty digest gracefully."""
         formatter = DigestFormatter()
 
-        result = formatter.format([], [], [], "")
+        result = formatter.format([], [], [], weekly_synthesis="")
 
         assert result.telegram
         assert result.html
@@ -215,7 +216,7 @@ class TestDigestFormatter:
             url="url",
         )]
 
-        result = formatter.format([], [], github, "")
+        result = formatter.format([], [], github, weekly_synthesis="")
 
         assert "-50" in result.telegram
         assert "-4.8%" in result.telegram
@@ -228,7 +229,7 @@ class TestDigestFormatter:
             thesis="Thesis with <b>HTML</b>",
         )]
 
-        result = formatter.format(papers, [], [], "")
+        result = formatter.format(papers, [], [], weekly_synthesis="")
 
         # Should not break HTML
         assert "</body>" in result.html

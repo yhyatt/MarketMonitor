@@ -5,7 +5,7 @@ import pytest
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,13 +21,12 @@ def temp_dir():
 
 
 @pytest.fixture
-def config(temp_dir):
+def config(temp_dir, monkeypatch):
     """Create a test config with temporary directories."""
+    monkeypatch.setenv("MOONSHOT_API_KEY", "test-moonshot-key")
     cfg = Config(
         memory_dir=temp_dir / "memory" / "market",
-        anthropic_api_token="test-token",
         github_token="test-gh-token",
-        gog_keyring_password="test-password",
     )
     cfg.ensure_memory_dir()
     return cfg
@@ -124,15 +123,38 @@ def sample_github_response():
     }
 
 
+def _make_zai_response(content_json: dict) -> MagicMock:
+    """Build a mock Z.AI API response (urllib response)."""
+    resp_data = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(content_json),
+                    "reasoning_content": None,
+                }
+            }
+        ]
+    }
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps(resp_data).encode("utf-8")
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    return mock_resp
+
+
 @pytest.fixture
-def mock_anthropic_response():
-    """Mock Anthropic API response."""
-    mock = MagicMock()
-    mock.content = [MagicMock(text=json.dumps({
+def mock_zai_response():
+    """Mock Z.AI API response for a successful score."""
+    return _make_zai_response({
         "score": 8,
         "thesis": "Multi-agent systems represent the next frontier",
         "themes": ["agentic-AI", "multi-agent", "orchestration"],
         "strategic_signals": ["Enterprise adoption accelerating"],
         "why_it_matters": "This shifts the competitive landscape.",
-    }))]
-    return mock
+    })
+
+
+@pytest.fixture
+def make_zai_response():
+    """Factory fixture to build custom Z.AI responses."""
+    return _make_zai_response
