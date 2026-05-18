@@ -51,7 +51,7 @@ class EmailSender:
                             "-a", DEFAULT_ACCOUNT,
                             "--to", self.recipient,
                             "--subject", self.subject,
-                            "--body-html", body,
+                            "--body-file", html_path,
                         ],
                         capture_output=True,
                         text=True,
