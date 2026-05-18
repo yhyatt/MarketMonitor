@@ -39,27 +39,27 @@ class EmailSender:
 
         try:
             if html:
-                # Write HTML to temp file to avoid CLI arg length limits
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
-                    f.write(body)
-                    html_path = f.name
+                # Pipe HTML via stdin to avoid CLI arg length limits
+                # --body-html '-' reads HTML from stdin
+                proc = subprocess.Popen(
+                    [
+                        GOG_BIN, "gmail", "send",
+                        "-a", DEFAULT_ACCOUNT,
+                        "--to", self.recipient,
+                        "--subject", self.subject,
+                        "--body-html", "-",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=env,
+                )
+                stdout, stderr = proc.communicate(input=body, timeout=30)
 
-                try:
-                    result = subprocess.run(
-                        [
-                            GOG_BIN, "gmail", "send",
-                            "-a", DEFAULT_ACCOUNT,
-                            "--to", self.recipient,
-                            "--subject", self.subject,
-                            "--body-file", html_path,
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                        env=env,
-                    )
-                finally:
-                    os.unlink(html_path)
+                if proc.returncode != 0:
+                    print(f"[Email] gog send failed: {stderr}")
+                    return False
             else:
                 result = subprocess.run(
                     [
@@ -75,9 +75,9 @@ class EmailSender:
                     env=env,
                 )
 
-            if result.returncode != 0:
-                print(f"[Email] gog send failed: {result.stderr}")
-                return False
+                if result.returncode != 0:
+                    print(f"[Email] gog send failed: {result.stderr}")
+                    return False
 
             print(f"[Email] Sent to {self.recipient}")
             return True
