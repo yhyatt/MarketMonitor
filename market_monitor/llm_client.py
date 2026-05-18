@@ -13,9 +13,9 @@ from typing import Optional
 MOONSHOT_API_URL = "https://api.moonshot.ai/v1/chat/completions"
 ZAI_API_URL = "https://api.z.ai/api/coding/paas/v4/chat/completions"
 
-# Kimi K2.6 returns reasoning_content instead of content for regular prompts.
-# Use moonshot-v1-8k for reliable JSON/content responses.
-DEFAULT_MODEL = "moonshot-v1-8k"
+# Kimi K2.6 with thinking=off returns reliable content without reasoning tokens.
+# moonshot-v1-8k is deprecated/unavailable — do not use.
+DEFAULT_MODEL = "kimi-k2-6"
 FALLBACK_MODEL = "glm-5-turbo"
 
 

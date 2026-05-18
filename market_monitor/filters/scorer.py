@@ -58,7 +58,7 @@ class LLMScorer:
 
     config: Config
     model: str = "kimi-k2-6"
-    max_workers: int = 5
+    max_workers: int = 3  # Reduced to avoid API rate limits and timeouts
 
     def __post_init__(self):
         if not os.environ.get("MOONSHOT_API_KEY"):
