@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,28 +35,45 @@ class EmailSender:
         Returns:
             True if sent successfully, False otherwise
         """
-        cmd = [
-            GOG_BIN, "gmail", "send",
-            "-a", DEFAULT_ACCOUNT,
-            "--to", self.recipient,
-            "--subject", self.subject,
-            "--body", body,
-        ]
-        if html:
-            # gog uses --body-html for HTML content, --body for plain text
-            cmd.remove("--body")
-            cmd.append("--body-html")
-
         env = {**os.environ, "GOG_KEYRING_PASSWORD": GOG_KEYRING_PASSWORD}
 
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=env,
-            )
+            if html:
+                # Write HTML to temp file to avoid CLI arg length limits
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+                    f.write(body)
+                    html_path = f.name
+
+                try:
+                    result = subprocess.run(
+                        [
+                            GOG_BIN, "gmail", "send",
+                            "-a", DEFAULT_ACCOUNT,
+                            "--to", self.recipient,
+                            "--subject", self.subject,
+                            "--body-html", body,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        env=env,
+                    )
+                finally:
+                    os.unlink(html_path)
+            else:
+                result = subprocess.run(
+                    [
+                        GOG_BIN, "gmail", "send",
+                        "-a", DEFAULT_ACCOUNT,
+                        "--to", self.recipient,
+                        "--subject", self.subject,
+                        "--body", body,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env=env,
+                )
 
             if result.returncode != 0:
                 print(f"[Email] gog send failed: {result.stderr}")

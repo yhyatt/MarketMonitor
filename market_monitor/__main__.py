@@ -56,12 +56,12 @@ def cmd_scan(config: Config, dry_run: bool = False) -> dict:
     print(f"  After dedup: {len(arxiv_deduped)}")
 
     if not dry_run and arxiv_deduped:
-        # Score and log — limit to top 30 by relevance to avoid API timeout
+        # Score and log — limit to top 20 by relevance to avoid API timeout
         try:
             from .filters import LLMScorer
             scorer = LLMScorer(config)
             # Pre-trim to avoid scoring 100+ papers (timeout risk)
-            arxiv_to_score = arxiv_deduped[:30]
+            arxiv_to_score = arxiv_deduped[:20]
             logger.log_scoring_start(len(arxiv_to_score))
             scored = scorer.filter_by_threshold(arxiv_to_score, threshold=config.score_threshold, max_items=config.max_digest_items)
             logger.log_scoring_end(len(arxiv_to_score), len(scored))
@@ -93,9 +93,11 @@ def cmd_scan(config: Config, dry_run: bool = False) -> dict:
         try:
             from .filters import LLMScorer
             scorer = LLMScorer(config)
-            logger.log_scoring_start(len(hf_deduped))
-            scored = scorer.filter_by_threshold(hf_deduped, threshold=config.score_threshold, max_items=config.max_digest_items)
-            logger.log_scoring_end(len(hf_deduped), len(scored))
+            # Pre-trim HF items to avoid timeout (models + papers can be 100+)
+            hf_to_score = hf_deduped[:25]
+            logger.log_scoring_start(len(hf_to_score))
+            scored = scorer.filter_by_threshold(hf_to_score, threshold=config.score_threshold, max_items=config.max_digest_items)
+            logger.log_scoring_end(len(hf_to_score), len(scored))
             hf_logger = HFLogger(config)
             results["huggingface"] = hf_logger.log_batch(scored)
             print(f"  Logged {results['huggingface']} items")

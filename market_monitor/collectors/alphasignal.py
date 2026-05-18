@@ -13,7 +13,7 @@ from ..config import Config
 
 GOG_BIN = "/home/openclaw/.local/bin/gog"
 GOG_KEYRING_PASSWORD = "kai-gog-keyring"
-DEFAULT_ACCOUNT = "hyatt.yonatan@gmail.com"
+DEFAULT_ACCOUNTS = ["amisraelk@gmail.com", "hyatt.yonatan@gmail.com"]
 
 
 @dataclass
@@ -47,22 +47,30 @@ class AlphaSignalCollector(BaseCollector):
         return "AlphaSignal"
 
     def collect(self) -> list[AlphaItem]:
-        """Fetch and parse AlphaSignal emails from Gmail."""
-        # Try label-based search first, fall back to sender search
-        email_ids = self._search_emails(self.SEARCH_QUERY)
-        if not email_ids:
-            print(f"[AlphaSignal] No emails found with label search, trying sender fallback")
-            email_ids = self._search_emails(self.SEARCH_QUERY_FALLBACK)
-        if not email_ids:
-            print("[AlphaSignal] No emails found")
-            return []
+        """Fetch and parse AlphaSignal emails from Gmail (checks both accounts)."""
+        all_items = []
+        seen_ids = set()  # dedup by email ID
 
-        items = []
-        for email_id in email_ids[:self.LIMIT]:
-            email_items = self._parse_email(email_id)
-            items.extend(email_items)
+        for account in DEFAULT_ACCOUNTS:
+            # Try label-based search first, fall back to sender search
+            email_ids = self._search_emails(self.SEARCH_QUERY, account)
+            if not email_ids:
+                print(f"[AlphaSignal] No emails found with label search on {account}, trying sender fallback")
+                email_ids = self._search_emails(self.SEARCH_QUERY_FALLBACK, account)
+            if not email_ids:
+                print(f"[AlphaSignal] No emails found on {account}")
+                continue
 
-        return items
+            for email_id in email_ids:
+                if email_id in seen_ids:
+                    continue
+                seen_ids.add(email_id)
+                email_items = self._parse_email(email_id, account)
+                all_items.extend(email_items)
+                if len(all_items) >= self.LIMIT:
+                    return all_items[:self.LIMIT]
+
+        return all_items
 
     def _run_gog(self, args: list[str]) -> subprocess.CompletedProcess:
         """Run a gog command with keyring password."""
@@ -70,12 +78,12 @@ class AlphaSignalCollector(BaseCollector):
         env = {**os.environ, "GOG_KEYRING_PASSWORD": GOG_KEYRING_PASSWORD}
         return subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
 
-    def _search_emails(self, query: str) -> list[str]:
-        """Search for AlphaSignal emails in Gmail."""
+    def _search_emails(self, query: str, account: str) -> list[str]:
+        """Search for AlphaSignal emails in Gmail for a specific account."""
         try:
             result = self._run_gog([
                 "gmail", "search", query,
-                "-a", DEFAULT_ACCOUNT,
+                "-a", account,
                 "-j", "--results-only",
             ])
 
@@ -98,12 +106,12 @@ class AlphaSignalCollector(BaseCollector):
             print(f"[AlphaSignal] Error searching emails: {e}")
             return []
 
-    def _parse_email(self, email_id: str) -> list[AlphaItem]:
-        """Read and parse a single email."""
+    def _parse_email(self, email_id: str, account: str) -> list[AlphaItem]:
+        """Read and parse a single email from a specific account."""
         try:
             result = self._run_gog([
                 "gmail", "get", email_id,
-                "-a", DEFAULT_ACCOUNT,
+                "-a", account,
                 "-j",
             ])
 
