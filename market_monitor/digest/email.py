@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
@@ -38,46 +37,29 @@ class EmailSender:
         env = {**os.environ, "GOG_KEYRING_PASSWORD": GOG_KEYRING_PASSWORD}
 
         try:
+            cmd = [
+                GOG_BIN, "gmail", "send",
+                "-a", DEFAULT_ACCOUNT,
+                "--to", self.recipient,
+                "--subject", self.subject,
+            ]
+
             if html:
-                # Pipe HTML via stdin to avoid CLI arg length limits
-                # --body-html '-' reads HTML from stdin
-                proc = subprocess.Popen(
-                    [
-                        GOG_BIN, "gmail", "send",
-                        "-a", DEFAULT_ACCOUNT,
-                        "--to", self.recipient,
-                        "--subject", self.subject,
-                        "--body-html", "-",
-                    ],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    env=env,
-                )
-                stdout, stderr = proc.communicate(input=body, timeout=30)
-
-                if proc.returncode != 0:
-                    print(f"[Email] gog send failed: {stderr}")
-                    return False
+                cmd.extend(["--body-html", body])
             else:
-                result = subprocess.run(
-                    [
-                        GOG_BIN, "gmail", "send",
-                        "-a", DEFAULT_ACCOUNT,
-                        "--to", self.recipient,
-                        "--subject", self.subject,
-                        "--body", body,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    env=env,
-                )
+                cmd.extend(["--body", body])
 
-                if result.returncode != 0:
-                    print(f"[Email] gog send failed: {result.stderr}")
-                    return False
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env,
+            )
+
+            if result.returncode != 0:
+                print(f"[Email] gog send failed: {result.stderr}")
+                return False
 
             print(f"[Email] Sent to {self.recipient}")
             return True
